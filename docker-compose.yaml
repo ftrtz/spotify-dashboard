@@ -1,0 +1,12 @@
+version: '3'
+services:
+  web:
+    build: .
+    ports:
+      - 8501:8501
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_SECRET=${POSTGRES_SECRET}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
