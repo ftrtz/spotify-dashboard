@@ -27,7 +27,7 @@ DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT")
 DB_NAME = os.getenv("DB_NAME")
 
-engine = create_engine(f"postgresql+psycopg2://{POSTGRES_USER}:{POSTGRES_SECRET}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+engine = create_engine(f'postgresql+psycopg2://{POSTGRES_USER}:{POSTGRES_SECRET}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
 
 # join played table
 query = """
@@ -128,17 +128,17 @@ with t1:
 
     c1, c2 = st.columns(2)
     with c1:
-        st.image(f"{fav_artist["image"].values[0]}")
+        st.image(f'{fav_artist["image"].values[0]}')
     with c2:
         st.subheader(fav_artist_name)
-        st.markdown(f"You spent **{fav_artist_min}** minutes with *{fav_artist_name}*")
-        st.markdown(f":busts_in_silhouette: {fav_artist["followers"].values[0]}")
+        st.markdown(f'You spent **{fav_artist_min}** minutes with *{fav_artist_name}*')
+        st.markdown(f':busts_in_silhouette: {fav_artist["followers"].values[0]}')
         genres = ", ".join(fav_artist["genres"].values[0])
-        st.markdown(f":notes: {genres if genres else "No genres defined"}")
-        st.progress(value=int(fav_artist["popularity"].values[0]), text=f"Popularity: {fav_artist["popularity"].values[0]}")
-        st.markdown(f"Your most played *{fav_artist_name}* song is *{fav_artist_track["track"].values[0]}* (**{fav_artist_track["count"].values[0]}** times)")
+        st.markdown(f':notes: {genres if genres else "No genres defined"}')
+        st.progress(value=int(fav_artist["popularity"].values[0]), text=f'Popularity: {fav_artist["popularity"].values[0]}')
+        st.markdown(f'Your most played *{fav_artist_name}* song is *{fav_artist_track["track"].values[0]}* (**{fav_artist_track["count"].values[0]}** times)')
 
-    st.markdown(f"You listened to **{top_artist.shape[0]}** different artists. Here are your favourites:")
+    st.markdown(f'You listened to **{top_artist.shape[0]}** different artists. Here are your favourites:')
     st.altair_chart(alt.Chart(top_artist.head(20)).mark_bar().encode(
         x=alt.X("main_artist", sort=None, axis=alt.Axis(title=None)),
         y=alt.Y("duration_min",title="Time listened (min)"),
