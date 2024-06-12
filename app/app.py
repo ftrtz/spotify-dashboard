@@ -6,9 +6,6 @@ from datetime import timedelta, date
 from sqlalchemy import create_engine
 import os
 import pandas as pd
-from dotenv import load_dotenv
-
-load_dotenv()
 
 
 # ========= HELPER FUNCTIONS
