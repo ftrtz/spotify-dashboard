@@ -9,4 +9,4 @@ If you have the spotify Database running just fill in the DB credentials in ```.
 docker compose up
 ```
 
-todo: add demo database
+todo: add demo data
