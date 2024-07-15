@@ -217,42 +217,129 @@ else:
                 delta=round(avg_pop - track["popularity"].mean(), 2)
             )
 
-    t1, t2 = st.tabs(["Artists", "Tracks"])
+    t1, t2, t3 = st.tabs(["Artists", "Tracks", "Genres"])
 
     with t1:
-        st.header("Favorite Artist")
+        st.header("Favorite Artists")
+        # prepare spotlight container on top of the table
+        t1_c1, t1_c2 = st.columns([2, 1])
+       
+        artist_full = artist_played.merge(artist, how="left", left_on=["main_artist_id", "main_artist"], right_on=["id", "name"])
+        event = st.dataframe(
+            artist_full,
+            column_config={
+                "image": st.column_config.ImageColumn("Cover"),
+                "main_artist_id": None,
+                "id": None,
+                "duration_ms": None,
+                "name": st.column_config.Column("Artist"),
+                "main_artist": None,
+                "duration_min": st.column_config.NumberColumn("Listened (min)", format="%d"),
+                "followers": None,
+                "genres": st.column_config.Column("Genres"),
+                "popularity": st.column_config.ProgressColumn("Popularity", format="%f", min_value=0, max_value=100),
+                "uri": None,
+                "images": None
+            },
+            column_order=["image", "name", "duration_min", "genres", "popularity"],
+            hide_index=True,
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="single-row"
+        )
 
-        fav_artist_id = artist_played["main_artist_id"].values[0]
-        fav_artist = artist[artist["id"] == fav_artist_id].to_dict("records")[0]
-        fav_artist_playtime = int(artist_played["duration_min"].values[0])
+        if event.selection.rows:
+            selected_idx = event.selection.rows[0]
+        else:
+            selected_idx = 0
 
-        fav_artist_track = played[played["main_artist_id"] == fav_artist_id]
-        fav_artist_track = fav_artist_track.groupby(["image", "track_id", "track"]).size().reset_index(name="count").sort_values(by="count", ascending=False).to_dict("records")[0]
+        selected_id = artist_full["id"].iloc[selected_idx]
+        selected_artist = artist_full[artist_full["id"] == selected_id].to_dict("records")[0]
 
-        t1_c1, t1_c2, t1_c3 = st.columns([2, 2, 1])
         with t1_c1:
-            st.image(f'{fav_artist["image"]}')
+            with st.container(height=183, border=True):
+                # consider using a dataframe to display this. Maybe ag grid and disable grid lines? Or use pandas styler and inject to st.table
+                spot_c1, spot_c2, spot_c3, spot_c4 = st.columns([1,3,4,4])
+                with spot_c1:
+                    st.caption(f'#{selected_idx + 1}')
+                with spot_c2:
+                    st.image(selected_artist["image"], width=150)
+                with spot_c3:
+                    st.caption("Artist")
+                    st.write(selected_artist["name"])
+                with spot_c4:
+                    st.caption("Followers")
+                    st.write(selected_artist["followers"])
+
+
         with t1_c2:
-            st.subheader(fav_artist["name"])
-            st.markdown(f'You spent **{fav_artist_playtime}** minutes with *{fav_artist["name"]}*')
-            st.markdown(f':busts_in_silhouette: {fav_artist["followers"]}')
-            genres = ", ".join(fav_artist["genres"])
-            st.markdown(f':notes: {genres if genres else "No genres defined"}')
-            st.progress(value=int(fav_artist["popularity"]), text=f'Popularity: {fav_artist["popularity"]}')
-            st.markdown(f'Your most played *{fav_artist["name"]}* song is *{fav_artist_track["track"]}* (**{fav_artist_track["count"]}** times)')
+            with st.expander("Cumulative Time Listened (min)", expanded=True):
+
+                selected_cum_time = played[played["main_artist_id"] == selected_id]# .groupby("played_at")["duration_ms"].cumsum().reset_index(name="cumsum")
+                selected_cum_time["duration_min"] = selected_cum_time["duration_ms"] / 60000
+                selected_cum_time["duration_min_cumsum"] = selected_cum_time["duration_min"].cumsum()
+
+                st.altair_chart(alt.Chart(selected_cum_time).mark_line().encode(
+                    x=alt.X("monthdate(played_at)", title=None),
+                    y=alt.Y("duration_min_cumsum", axis=alt.Axis(title=None, tickMinStep=1)),
+                ).properties(height=112), use_container_width=True)
 
 
-        # Does not look nice -> redo or remove
-#        st.markdown(f'You listened to **{artist_played.shape[0]}** different artists. Here are your favourites:')
-#        st.altair_chart(alt.Chart(artist_played.head(20)).mark_bar().encode(
-#            x=alt.X("main_artist", sort=None, axis=alt.Axis(title=None, labelAngle=-60, labelOverlap=False)),
-#            y=alt.Y("duration_min", title="Time listened (min)"),
-#        ).configure_axis(grid=False), use_container_width=True)
+        st.header("Artist Metrics")
+
+        with st.container(border=True):
+            selected_metric = st.selectbox("Select Metric", artist[["popularity", "followers"]].columns)
+
+            # lookup dict for the limits of the selected metric
+            limits = {
+                "popularity": [0, 100],
+                "followers": [artist["followers"].min(), artist["followers"].max()]
+                }
+
+            c1, c2 = st.columns([2, 3])
+            with c1:
+                selector = alt.selection_point(encodings=['x'])
+                event = st.altair_chart(
+                    alt.Chart(artist).mark_bar().encode(
+                        x=alt.X(f"{selected_metric}:Q", bin=True, scale=alt.Scale(domain=limits[selected_metric])),
+                        y='count(*):Q',
+                        color=alt.condition(selector, f'{selected_metric}:Q', alt.value('lightgray'), legend=None, sort="descending")
+                        ).add_selection(selector).properties(height=300),
+                        use_container_width=True,
+                        on_select="rerun"
+                )
+                # TODO: follower histogram should be log scale
+            
+            with c2:
+                if not event["selection"]["param_1"]:
+                    range_selection = limits[selected_metric]
+                else:
+                    range_selection = event["selection"]["param_1"][0][selected_metric]
+
+                artist_param = artist[(artist[selected_metric] > range_selection[0]) & (artist[selected_metric] <= range_selection[1])].sort_values(by=selected_metric, ascending=False)
+
+                st.dataframe(
+                    artist_param,
+                    column_config={
+                        "image": st.column_config.ImageColumn("Cover"),
+                        f"{selected_metric}": st.column_config.Column(f'{selected_metric} ({range_selection[0]} - {range_selection[1]})'),
+                        "name": st.column_config.Column("Artist"),
+                        "id": None,
+                        "duration_ms": None,
+                        "album_id": None,
+                        "album_images": None,
+                        "uri": None,
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    column_order=[selected_metric, "image", "name"],
+                    height=300
+                    )
 
     with t2:
         st.header("Most Played Tracks")
         top_played = played
-        top_played = top_played.groupby(["image", "track_id", "track", "artist","album", "popularity", "spotify_uri"]).size().reset_index(name="count").sort_values(by="count", ascending=False).head(10)
+        top_played = top_played.groupby(["image", "track_id", "track", "artist","album", "popularity", "spotify_uri"]).size().reset_index(name="count").sort_values(by="count", ascending=False)
 
         t2_c1, t2_c2 = st.columns([2, 1])
         with t2_c1:
@@ -335,7 +422,7 @@ else:
                 
 
 
-        st.header("Track Details")
+        st.header("Track Metrics")
 
         with st.container(border=True):
             # merge all played tracks with audio features
@@ -378,7 +465,7 @@ else:
                 else:
                     range_selection = event["selection"]["param_1"][0][selected_metric]
                     
-                track_param = track_full[(track_full[selected_metric] > range_selection[0]) & (track_full[selected_metric] < range_selection[1])].sort_values(by=selected_metric, ascending=False)
+                track_param = track_full[(track_full[selected_metric] > range_selection[0]) & (track_full[selected_metric] <= range_selection[1])].sort_values(by=selected_metric, ascending=False)
 
                 st.dataframe(
                     track_param,
@@ -398,3 +485,6 @@ else:
                     column_order=[selected_metric, "image", "track", "artist"],
                     height=300
                     )
+                
+    with t3:
+        st.info("Genre statistics coming soon")
