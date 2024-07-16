@@ -221,27 +221,28 @@ else:
 
     with t1:
         st.header("Favorite Artists")
+
         # prepare spotlight container on top of the table
-        t1_c1, t1_c2 = st.columns([2, 1])
-       
+        spot1, spot2, spot3 = st.columns([1,2,2])
+
         artist_full = artist_played.merge(artist, how="left", left_on=["main_artist_id", "main_artist"], right_on=["id", "name"])
         event = st.dataframe(
             artist_full,
             column_config={
-                "image": st.column_config.ImageColumn("Cover"),
+                "image": st.column_config.ImageColumn(""),
                 "main_artist_id": None,
                 "id": None,
                 "duration_ms": None,
-                "name": st.column_config.Column("Artist"),
+                "name": st.column_config.Column(""),
                 "main_artist": None,
-                "duration_min": st.column_config.NumberColumn("Listened (min)", format="%d"),
-                "followers": None,
-                "genres": st.column_config.Column("Genres"),
-                "popularity": st.column_config.ProgressColumn("Popularity", format="%f", min_value=0, max_value=100),
+                "duration_min": st.column_config.NumberColumn("⏳", format="%d min", help="Time listened in minutes"),
+                "followers": st.column_config.Column("👥", help="Followers"),
+                "genres": st.column_config.Column("🎶", help="Genres"),
+                "popularity": st.column_config.ProgressColumn("🌟", format="%f", min_value=0, max_value=100, help="Popularity"),
                 "uri": None,
                 "images": None
             },
-            column_order=["image", "name", "duration_min", "genres", "popularity"],
+            column_order=["image", "name", "duration_min", "genres", "popularity", "followers"],
             hide_index=True,
             use_container_width=True,
             on_select="rerun",
@@ -256,34 +257,39 @@ else:
         selected_id = artist_full["id"].iloc[selected_idx]
         selected_artist = artist_full[artist_full["id"] == selected_id].to_dict("records")[0]
 
-        with t1_c1:
-            with st.container(height=183, border=True):
-                # consider using a dataframe to display this. Maybe ag grid and disable grid lines? Or use pandas styler and inject to st.table
-                spot_c1, spot_c2, spot_c3, spot_c4 = st.columns([1,3,4,4])
-                with spot_c1:
-                    st.caption(f'#{selected_idx + 1}')
-                with spot_c2:
-                    st.image(selected_artist["image"], width=150)
-                with spot_c3:
-                    st.caption("Artist")
-                    st.write(selected_artist["name"])
-                with spot_c4:
-                    st.caption("Followers")
-                    st.write(selected_artist["followers"])
+
+        with spot1:
+            with st.container(height=260, border=True):
+                st.caption(f'#{selected_idx + 1} - {selected_artist["name"]}')
+                st.image(selected_artist["image"], use_column_width=True)
 
 
-        with t1_c2:
-            with st.expander("Cumulative Time Listened (min)", expanded=True):
-
-                selected_cum_time = played[played["main_artist_id"] == selected_id]# .groupby("played_at")["duration_ms"].cumsum().reset_index(name="cumsum")
+        with spot2:
+            with st.container(height=260, border=True):
+                st.caption("Cumulative Time Listened (min)")
+                selected_cum_time = played[played["main_artist_id"] == selected_id]
                 selected_cum_time["duration_min"] = selected_cum_time["duration_ms"] / 60000
                 selected_cum_time["duration_min_cumsum"] = selected_cum_time["duration_min"].cumsum()
 
                 st.altair_chart(alt.Chart(selected_cum_time).mark_line().encode(
                     x=alt.X("monthdate(played_at)", title=None),
                     y=alt.Y("duration_min_cumsum", axis=alt.Axis(title=None, tickMinStep=1)),
-                ).properties(height=112), use_container_width=True)
+                ).properties(height=180),
+                use_container_width=True)
 
+        with spot3:
+            selected_artist_tracks = played[played["main_artist_id"] == selected_id].groupby(["image", "track"]).size().reset_index(name="count").sort_values(by="count", ascending=False)
+            st.dataframe(
+                selected_artist_tracks,
+                column_config={
+                    "image": st.column_config.ImageColumn("Cover"),
+                    "track": st.column_config.Column("Title"),
+                    "count": st.column_config.Column("Plays"),
+                },
+                column_order=["count", "image", "track"],
+                hide_index=True,
+                use_container_width=True,
+                height=260)
 
         st.header("Artist Metrics")
 
@@ -341,86 +347,68 @@ else:
         top_played = played
         top_played = top_played.groupby(["image", "track_id", "track", "artist","album", "popularity", "spotify_uri"]).size().reset_index(name="count").sort_values(by="count", ascending=False)
 
-        t2_c1, t2_c2 = st.columns([2, 1])
-        with t2_c1:
-            # prepare spotlight container on top of the table
-            spotlight = st.container(height=150, border=True)
+        # prepare spotlight container on top of the table
+        spot1, spot2, spot3 = st.columns([1,2,2])
 
-            event = st.dataframe(
-                top_played,
-                column_config={
-                    "image": st.column_config.ImageColumn("Cover"),
-                    "track_id": None,
-                    "track": st.column_config.Column("Title", width="medium"),
-                    "artist": st.column_config.Column("Artist", width="medium"),
-                    "album": None,
-                    "spotify_uri": None,
-                    "popularity": st.column_config.ProgressColumn("Popularity", format="%f", min_value=0, max_value=100),
-                    "count": st.column_config.Column("Plays"),
-                },
-                hide_index=True,
-                use_container_width=True,
-                on_select="rerun",
-                selection_mode="single-row"
-            )
+        event = st.dataframe(
+            top_played,
+            column_config={
+                "image": st.column_config.ImageColumn(""),
+                "track_id": None,
+                "track": st.column_config.Column("Title"),
+                "artist": st.column_config.Column("Artist"),
+                "album": st.column_config.Column("Album"),
+                "popularity": st.column_config.ProgressColumn("🌟", format="%f", min_value=0, max_value=100, help="Popularity"),
+                "count": st.column_config.Column("Plays", help="Number of times this track was played"),
+                "spotify_uri": st.column_config.LinkColumn("▶️", help="Open in Spotify", display_text="▶️"),
+            },
+            column_order=["image", "count", "track", "artist", "album", "popularity", "spotify_uri"],
+            hide_index=True,
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="single-row"
+        )
 
-            if event.selection.rows:
-                selected_idx = event.selection.rows[0]
-            else:
-                selected_idx = 0
+        if event.selection.rows:
+            selected_idx = event.selection.rows[0]
+        else:
+            selected_idx = 0
 
-            selected_id = top_played["track_id"].iloc[selected_idx]
-            selected_track = top_played[top_played["track_id"] == selected_id].to_dict("records")[0]
-            selected_af = audio_features[audio_features["track_id"] == selected_id]
+        selected_id = top_played["track_id"].iloc[selected_idx]
+        selected_track = top_played[top_played["track_id"] == selected_id].to_dict("records")[0]
+        selected_af = audio_features[audio_features["track_id"] == selected_id]
 
-            with spotlight:
-                # consider using a dataframe to display this. Maybe ag grid and disable grid lines? Or use pandas styler and inject to st.table
-                spot_c1, spot_c2, spot_c3, spot_c4, spot_c5 = st.columns([1,3,4,4,4])
-                with spot_c1:
-                    st.caption(f'#{selected_idx + 1}')
-                with spot_c2:
-                    st.image(selected_track["image"], width=110)
-                with spot_c3:
-                    st.caption("Title")
-                    st.write(selected_track["track"])
-                with spot_c4:
-                    st.caption("Artist")
-                    st.write(selected_track["artist"])
-                with spot_c5:
-                    st.caption("Album")
-                    st.write(selected_track["album"])
 
-        with t2_c2:
-            with st.expander("Cumulative Plays", expanded=True):
+        with spot1:
+            with st.container(height=282, border=True):
+                st.caption(f'#{selected_idx + 1} - {selected_track["track"]}')
+                st.image(selected_track["image"], use_column_width=True)
+
+        with spot2:
+            with st.container(height=282, border=True):
+                st.caption("Cumulative Plays")
                 selected_cum_plays = played[played["track_id"] == selected_id].groupby("played_at").size().cumsum().reset_index(name="cumsum")
 
                 st.altair_chart(alt.Chart(selected_cum_plays).mark_line().encode(
                     x=alt.X("monthdate(played_at)", title=None),
                     y=alt.Y("cumsum", axis=alt.Axis(title=None, tickMinStep=1)),
-                ).properties(height=112), use_container_width=True)
+                ).properties(height=200), use_container_width=True)
 
-        #    st.link_button(
-        #        label=":green[Open in Spotify]",
-        #        url=f'{selected_track["spotify_uri"]}',
-        #        help="Open in Spotify",
-        #        use_container_width=True)
-            
-            with st.expander("Audio Features", expanded=True):
-            
-                selected_af_pivoted = pd.melt(selected_af, id_vars="track_id", value_vars=["acousticness", "danceability", "energy", "instrumentalness", "liveness", "speechiness", "valence"], var_name="Feature")
 
-                st.dataframe(
-                    selected_af_pivoted,
-                    column_config={
-                        "track_id": None,
-                        "Feature": st.column_config.Column("Feature"),
-                        "value": st.column_config.ProgressColumn("Value", format="%.2f", min_value=0, max_value=1)
-                    },
-                    hide_index=True,
-                    use_container_width=True
-                )
-                
+        with spot3:
+            selected_af_pivoted = pd.melt(selected_af, id_vars="track_id", value_vars=["acousticness", "danceability", "energy", "instrumentalness", "liveness", "speechiness", "valence"], var_name="Feature")
 
+            st.dataframe(
+                selected_af_pivoted,
+                column_config={
+                    "track_id": None,
+                    "Feature": st.column_config.Column("Audio Feature"),
+                    "value": st.column_config.ProgressColumn("Value", format="%.2f", min_value=0, max_value=1)
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=282
+            )
 
         st.header("Track Metrics")
 
@@ -441,6 +429,7 @@ else:
                 "speechiness": [0, 1],
                 "acousticness": [0, 1],
                 "instrumentalness": [0, 1],
+                "liveness": [0, 1],
                 "valence": [0, 1],
                 "tempo": [track_full["tempo"].min(), track_full["tempo"].max()],
                 "time_signature": [track_full["time_signature"].min(), track_full["time_signature"].max()]
