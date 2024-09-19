@@ -37,9 +37,9 @@ def get_played_joined(engine: Engine, db_schema: str) -> DataFrame:
             track.uri as spotify_uri,
             track.album_images->1->'url'->>0 as image
         from {db_schema}.played
-        join track on played.track_id = track.id
-        join track_artist on track.id = track_artist.track_id
-        join artist on track_artist.artist_id = artist.id
+        join {db_schema}.track on played.track_id = track.id
+        join {db_schema}.track_artist on track.id = track_artist.track_id
+        join {db_schema}.artist on track_artist.artist_id = artist.id
         group by played_at, track.id
         order by played_at;
     """
