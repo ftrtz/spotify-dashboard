@@ -13,7 +13,7 @@ from typing import Optional
 st.set_page_config(layout="wide")
 
 # ========= FUNCTIONS
-def get_played_joined(engine: Engine) -> DataFrame:
+def get_played_joined(engine: Engine, db_schema: str) -> DataFrame:
     """
     Load data from the database and join tables to get played tracks with their details.
 
@@ -23,7 +23,7 @@ def get_played_joined(engine: Engine) -> DataFrame:
     Returns:
     - pandas.DataFrame: DataFrame with played track details.
     """
-    query = """
+    query = f"""
         select
             played_at,
             track.id as track_id,
@@ -36,7 +36,7 @@ def get_played_joined(engine: Engine) -> DataFrame:
             track.album_name as album,
             track.uri as spotify_uri,
             track.album_images->1->'url'->>0 as image
-        from played
+        from {db_schema}.played
         join track on played.track_id = track.id
         join track_artist on track.id = track_artist.track_id
         join artist on track_artist.artist_id = artist.id
@@ -45,7 +45,7 @@ def get_played_joined(engine: Engine) -> DataFrame:
     """
     return pd.read_sql_query(query, con=engine, parse_dates="played_at")
 
-def get_artist(engine: Engine) -> DataFrame:
+def get_artist(engine: Engine, db_schema: str) -> DataFrame:
     """
     Load artist data from the database.
 
@@ -55,13 +55,13 @@ def get_artist(engine: Engine) -> DataFrame:
     Returns:
     - pandas.DataFrame: DataFrame with artist details.
     """
-    query ="""
+    query = f"""
         select *, images->1->'url'->>0 as image
-        from artist;
+        from {db_schema}.artist;
     """
     return pd.read_sql_query(query, con=engine)
 
-def get_track(engine: Engine) -> DataFrame:
+def get_track(engine: Engine, db_schema: str) -> DataFrame:
     """
     Load track data from the database.
 
@@ -71,13 +71,13 @@ def get_track(engine: Engine) -> DataFrame:
     Returns:
     - pandas.DataFrame: DataFrame with track details.
     """
-    query = """
+    query = f"""
         select *, album_images->1->'url'->>0 as image
-        from track;
+        from {db_schema}.track;
     """
     return pd.read_sql_query(query, con=engine)
 
-def get_audio_features(engine: Engine) -> DataFrame:
+def get_audio_features(engine: Engine, db_schema: str) -> DataFrame:
     """
     Load audio features data from the database.
 
@@ -87,9 +87,9 @@ def get_audio_features(engine: Engine) -> DataFrame:
     Returns:
     - pandas.DataFrame: DataFrame with audio features details.
     """
-    query = """
+    query = f"""
         select *
-        from audio_features;
+        from {db_schema}.audio_features;
     """
     return pd.read_sql_query(query, con=engine)
 
@@ -116,11 +116,13 @@ DB_NAME = os.getenv("DB_NAME")
 
 engine = create_engine(f'postgresql+psycopg2://{POSTGRES_USER}:{POSTGRES_SECRET}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
 
+db_schema = os.getenv("DB_SCHEMA")
+
 # ========== LOAD DATA
-played_raw = get_played_joined(engine)
-artist = get_artist(engine)
-track = get_track(engine)
-audio_features = get_audio_features(engine)
+played_raw = get_played_joined(engine, db_schema)
+artist = get_artist(engine, db_schema)
+track = get_track(engine, db_schema)
+audio_features = get_audio_features(engine, db_schema)
 
 # ========== CONTENT
 min_dt = played_raw["played_at"].min().to_pydatetime().date()
