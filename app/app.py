@@ -13,7 +13,8 @@ from typing import Optional
 st.set_page_config(layout="wide")
 
 # ========= FUNCTIONS
-def get_played_joined(engine: Engine, db_schema: str) -> DataFrame:
+@st.cache_data(ttl=3600)
+def get_played_joined(_con: Engine, db_schema: str) -> DataFrame:
     """
     Load data from the database and join tables to get played tracks with their details.
 
@@ -43,9 +44,17 @@ def get_played_joined(engine: Engine, db_schema: str) -> DataFrame:
         group by played_at, track.id
         order by played_at;
     """
-    return pd.read_sql_query(query, con=engine, parse_dates="played_at")
+    dfs = []
+    for chunk_df in pd.read_sql_query(
+        query, con=_con,
+        chunksize=10000,
+        parse_dates={'played_at': {'format': '%Y-%m-%d'}}
+        ):
+        dfs.append(chunk_df)
+    return pd.concat(dfs)
 
-def get_artist(engine: Engine, db_schema: str) -> DataFrame:
+@st.cache_data(ttl=3600)
+def get_artist(_con: Engine, db_schema: str) -> DataFrame:
     """
     Load artist data from the database.
 
@@ -59,9 +68,15 @@ def get_artist(engine: Engine, db_schema: str) -> DataFrame:
         select *, images->1->'url'->>0 as image
         from {db_schema}.artist;
     """
-    return pd.read_sql_query(query, con=engine)
+    dfs = []
+    for chunk_df in pd.read_sql_query(
+        query, con=_con, chunksize=10000
+        ):
+        dfs.append(chunk_df)
+    return pd.concat(dfs)
 
-def get_track(engine: Engine, db_schema: str) -> DataFrame:
+@st.cache_data(ttl=3600)
+def get_track(_con: Engine, db_schema: str) -> DataFrame:
     """
     Load track data from the database.
 
@@ -75,9 +90,15 @@ def get_track(engine: Engine, db_schema: str) -> DataFrame:
         select *, album_images->1->'url'->>0 as image
         from {db_schema}.track;
     """
-    return pd.read_sql_query(query, con=engine)
+    dfs = []
+    for chunk_df in pd.read_sql_query(
+        query, con=_con, chunksize=10000
+        ):
+        dfs.append(chunk_df)
+    return pd.concat(dfs)
 
-def get_audio_features(engine: Engine, db_schema: str) -> DataFrame:
+@st.cache_data(ttl=3600)
+def get_audio_features(_con: Engine, db_schema: str) -> DataFrame:
     """
     Load audio features data from the database.
 
@@ -91,8 +112,14 @@ def get_audio_features(engine: Engine, db_schema: str) -> DataFrame:
         select *
         from {db_schema}.audio_features;
     """
-    return pd.read_sql_query(query, con=engine)
+    dfs = []
+    for chunk_df in pd.read_sql_query(
+        query, con=_con, chunksize=10000
+        ):
+        dfs.append(chunk_df)
+    return pd.concat(dfs)
 
+@st.cache_data(ttl=3600)
 def get_artist_played(played: DataFrame) -> DataFrame:
     """
     Transforms the played dataframe and calculates the duration in minutes for the main artist.
@@ -115,33 +142,40 @@ DB_PORT = os.getenv("DB_PORT")
 DB_NAME = os.getenv("DB_NAME")
 
 engine = create_engine(f'postgresql+psycopg2://{POSTGRES_USER}:{POSTGRES_SECRET}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
+con = engine.connect().execution_options(stream_results=True)
 
 db_schema = os.getenv("DB_SCHEMA")
 
 # ========== LOAD DATA
-played_raw = get_played_joined(engine, db_schema)
-artist = get_artist(engine, db_schema)
-track = get_track(engine, db_schema)
-audio_features = get_audio_features(engine, db_schema)
+played_raw = get_played_joined(con, db_schema)
+artist = get_artist(con, db_schema)
+track = get_track(con, db_schema)
+audio_features = get_audio_features(con, db_schema)
 
 # ========== CONTENT
-min_dt = played_raw["played_at"].min().to_pydatetime().date()
+min_dt = played_raw["played_at"].min().date()
 max_dt = date.today() + timedelta(days=1)
 
 state = st.session_state
 
+# default start and end date when opening the application
 if 'start_date' not in state:
-    state.start_date = min_dt
+    state.start_date = date.today() - timedelta(days=14)
 
 if 'end_date' not in state:
     state.end_date = max_dt
 
+# functions for date range buttons
 def _today_cb() -> None:
     state.start_date = date.today()
     state.end_date = max_dt
 
 def _last_seven_days_cb() -> None:
     state.start_date = date.today() - timedelta(days=7)
+    state.end_date = max_dt
+
+def _last_fourteen_days_cb() -> None:
+    state.start_date = date.today() - timedelta(days=14)
     state.end_date = max_dt
 
 def _this_month_cb() -> None:
@@ -161,6 +195,7 @@ with st.sidebar:
 
     st.button('Today', on_click=_today_cb)
     st.button('Last 7 days', on_click=_last_seven_days_cb)
+    st.button('Last 14 days', on_click=_last_fourteen_days_cb)
     st.button('This month', on_click=_this_month_cb)
     st.button('This year', on_click=_this_year_cb)
     st.button('All time', on_click=_all_time_cb)
@@ -274,7 +309,7 @@ else:
                 selected_cum_time["duration_min_cumsum"] = selected_cum_time["duration_min"].cumsum()
 
                 st.altair_chart(alt.Chart(selected_cum_time).mark_line().encode(
-                    x=alt.X("monthdate(played_at)", title=None),
+                    x=alt.X("played_at", title=None),
                     y=alt.Y("duration_min_cumsum", axis=alt.Axis(title=None, tickMinStep=1)),
                 ).properties(height=180),
                 use_container_width=True)
@@ -312,7 +347,7 @@ else:
                         x=alt.X(f"{selected_metric}:Q", bin=True, scale=alt.Scale(domain=limits[selected_metric])),
                         y='count(*):Q',
                         color=alt.condition(selector, f'{selected_metric}:Q', alt.value('lightgray'), legend=None, sort="descending")
-                        ).add_selection(selector).properties(height=300),
+                        ).add_params(selector).properties(height=300),
                         use_container_width=True,
                         on_select="rerun"
                 )
@@ -392,7 +427,7 @@ else:
                 selected_cum_plays = played[played["track_id"] == selected_id].groupby("played_at").size().cumsum().reset_index(name="cumsum")
 
                 st.altair_chart(alt.Chart(selected_cum_plays).mark_line().encode(
-                    x=alt.X("monthdate(played_at)", title=None),
+                    x=alt.X("played_at", title=None),
                     y=alt.Y("cumsum", axis=alt.Axis(title=None, tickMinStep=1)),
                 ).properties(height=200), use_container_width=True)
 
@@ -445,7 +480,7 @@ else:
                         x=alt.X(f"{selected_metric}:Q", bin=True, scale=alt.Scale(domain=limits[selected_metric])),
                         y='count(*):Q',
                         color=alt.condition(selector, f'{selected_metric}:Q', alt.value('lightgray'), legend=None, sort="descending")
-                        ).add_selection(selector).properties(height=300),
+                        ).add_params(selector).properties(height=300),
                         use_container_width=True,
                         on_select="rerun"
                 )
