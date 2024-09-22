@@ -254,7 +254,7 @@ else:
                 delta=round(avg_pop - track["popularity"].mean(), 2)
             )
 
-    t1, t2, t3 = st.tabs(["Artists", "Tracks", "Genres"])
+    t1, t2, t3, t4 = st.tabs(["Artists", "Tracks", "Genres", "Recently Played"])
 
     with t1:
         st.header("Favorite Artists")
@@ -514,3 +514,24 @@ else:
                 
     with t3:
         st.info("Genre statistics coming soon")
+    with t4:
+        st.header("Recently Played Tracks")
+
+        recently_played = played.sort_values(by="played_at", ascending=False)
+
+        st.dataframe(
+            recently_played,
+            column_config={
+                "played_at": st.column_config.DatetimeColumn("Played at"),
+                "image": st.column_config.ImageColumn(""),
+                "track_id": None,
+                "track": st.column_config.Column("Title"),
+                "artist": st.column_config.Column("Artist"),
+                "album": st.column_config.Column("Album"),
+                "popularity": st.column_config.ProgressColumn("🌟", format="%f", min_value=0, max_value=100, help="Popularity"),
+                "spotify_uri": st.column_config.LinkColumn("▶️", help="Open in Spotify", display_text="▶️"),
+            },
+            column_order=["played_at","image", "track", "artist", "album", "popularity", "spotify_uri"],
+            hide_index=True,
+            use_container_width=True
+        )
