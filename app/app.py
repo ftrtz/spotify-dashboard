@@ -220,12 +220,19 @@ if start_date and end_date:
 if played.shape[0] == 0:
     st.info("No data for the selected date range.")
 else:
+    # retrieve played data for artists
     artist_played = get_artist_played(played)
+    # and merge the artist data
+    artist_full = artist_played.merge(artist, how="left", left_on="main_artist_id", right_on="id")
+
+    # --- Preparations for overall stats cards
+    all_genres = [genre for genres in artist_full["genres"] for genre in genres]
+    genres_count = pd.Series(all_genres).unique().shape[0]
 
     st.title("Spotify Dashboard")
 
-    # TODO: create card method
-    c1, c2, c3, c4 = st.columns(4)
+    # --- Overall stat cards
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         with st.container(height=125, border=True):
             total_time = played["duration_ms"].sum() / 60000
@@ -242,10 +249,16 @@ else:
     with c3:
         with st.container(height=125, border=True):
             st.metric(
+                label="Different genres",
+                value=genres_count
+            )
+    with c4:
+        with st.container(height=125, border=True):
+            st.metric(
                 label="Different tracks",
                 value=played.drop_duplicates("track_id").shape[0]
             )
-    with c4:
+    with c5:
         with st.container(height=125, border=True):
             avg_pop = played.drop_duplicates("track_id")["popularity"].mean()
             st.metric(
@@ -262,7 +275,6 @@ else:
         # prepare spotlight container on top of the table
         spot1, spot2, spot3 = st.columns([1,2,2])
 
-        artist_full = artist_played.merge(artist, how="left", left_on=["main_artist_id", "main_artist"], right_on=["id", "name"])
         event = st.dataframe(
             artist_full,
             column_config={
@@ -295,12 +307,29 @@ else:
         selected_artist = artist_full[artist_full["id"] == selected_id].to_dict("records")[0]
 
 
+        # try st extras
+        from streamlit_extras.card import card
+
+        from streamlit_extras.stylable_container import stylable_container
+        from annotated_text import annotated_text
+
+
         with spot1:
-            with st.container(height=260, border=True):
-                st.caption(f'#{selected_idx + 1} - {selected_artist["name"]}')
-                st.image(selected_artist["image"], use_column_width=True)
+            annotated_text((f"#{selected_idx + 1}", f'{selected_artist["name"]}'))
 
-
+            stylable_container(
+                key="selected-artist-image",
+                css_styles=
+                    f"""{{
+                            width: 100%;
+                            min-height: 218px;
+                            background-image: url("{selected_artist["image"]}");
+                            background-size: cover;
+                            background-position: center;
+                            border-radius: 10px;
+                        }}"""
+                    )
+                
         with spot2:
             with st.container(height=260, border=True):
                 st.caption("Cumulative Time Listened (min)")
@@ -417,9 +446,21 @@ else:
 
 
         with spot1:
-            with st.container(height=282, border=True):
-                st.caption(f'#{selected_idx + 1} - {selected_track["track"]}')
-                st.image(selected_track["image"], use_column_width=True)
+            annotated_text((f'#{selected_idx + 1}', f'{selected_track["track"]}'))
+
+
+            stylable_container(
+                key="selected-track-image",
+                css_styles=
+                    f"""{{
+                            width: 100%;
+                            min-height: 240px;
+                            background-image: url("{selected_track["image"]}");
+                            background-size: cover;
+                            background-position: center;
+                            border-radius: 10px;
+                        }}"""
+                    )
 
         with spot2:
             with st.container(height=282, border=True):
@@ -513,7 +554,20 @@ else:
                     )
                 
     with t3:
-        st.info("Genre statistics coming soon")
+        st.header("Most Popular Genres")
+
+
+        genres_df = pd.DataFrame(all_genres, columns=["genre"]).groupby("genre").size().reset_index(name="count").sort_values("count", ascending=False)
+        top_genres = list(genres_df[["genre", "count"]].head(10).itertuples(index=False, name=None))
+
+        # Convert the second element to a string and insert a space between the tuples
+        top_genres_converted = []
+        for item in top_genres:
+            top_genres_converted.append((item[0], str(item[1]) + "x"))
+            top_genres_converted.append(" ")
+
+        annotated_text(top_genres_converted)
+
     with t4:
         st.header("Recently Played Tracks")
 
