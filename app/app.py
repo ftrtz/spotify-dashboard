@@ -360,19 +360,23 @@ else:
         st.header("Artist Metrics")
 
         with st.container(border=True):
-            selected_metric = st.selectbox("Select Metric", artist[["popularity", "followers"]].columns)
+
+            # filter for artists played in time window
+            artist_filtered = artist[artist["id"].isin(played["main_artist_id"].unique())]
+            
+            selected_metric = st.selectbox("Select Metric", artist_filtered[["popularity", "followers"]].columns)
 
             # lookup dict for the limits of the selected metric
             limits = {
                 "popularity": [0, 100],
-                "followers": [artist["followers"].min(), artist["followers"].max()]
+                "followers": [artist_filtered["followers"].min(), artist_filtered["followers"].max()]
                 }
 
             c1, c2 = st.columns([2, 3])
             with c1:
                 selector = alt.selection_point(encodings=['x'])
                 event = st.altair_chart(
-                    alt.Chart(artist).mark_bar().encode(
+                    alt.Chart(artist_filtered).mark_bar().encode(
                         x=alt.X(f"{selected_metric}:Q", bin=True, scale=alt.Scale(domain=limits[selected_metric])),
                         y='count(*):Q',
                         color=alt.condition(selector, f'{selected_metric}:Q', alt.value('lightgray'), legend=None, sort="descending")
@@ -388,7 +392,7 @@ else:
                 else:
                     range_selection = event["selection"]["param_1"][0][selected_metric]
 
-                artist_param = artist[(artist[selected_metric] > range_selection[0]) & (artist[selected_metric] <= range_selection[1])].sort_values(by=selected_metric, ascending=False)
+                artist_param = artist_filtered[(artist_filtered[selected_metric] > range_selection[0]) & (artist_filtered[selected_metric] <= range_selection[1])].sort_values(by=selected_metric, ascending=False)
 
                 st.dataframe(
                     artist_param,
