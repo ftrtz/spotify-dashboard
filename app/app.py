@@ -267,10 +267,12 @@ else:
                 delta=round(avg_pop - track["popularity"].mean(), 2)
             )
 
-    t1, t2, t3, t4 = st.tabs(["Artists", "Tracks", "Genres", "Recently Played"])
+    t1, t2, t3 = st.tabs(["Favorites", "Metrics", "Recently Played"])
 
+# ---------------------------------------- TAB 1: FAVORITES ----------------------------------------
     with t1:
-        st.header("Favorite Artists")
+        # --- Artists
+        st.header("Most Heard Artists")
 
         # prepare spotlight container on top of the table
         spot1, spot2, spot3 = st.columns([1,2,2])
@@ -356,63 +358,9 @@ else:
                 hide_index=True,
                 use_container_width=True,
                 height=260)
-
-        st.header("Artist Metrics")
-
-        with st.container(border=True):
-
-            # filter for artists played in time window
-            artist_filtered = artist[artist["id"].isin(played["main_artist_id"].unique())]
             
-            selected_metric = st.selectbox("Select Metric", artist_filtered[["popularity", "followers"]].columns)
 
-            # lookup dict for the limits of the selected metric
-            limits = {
-                "popularity": [0, 100],
-                "followers": [artist_filtered["followers"].min(), artist_filtered["followers"].max()]
-                }
-
-            c1, c2 = st.columns([2, 3])
-            with c1:
-                selector = alt.selection_point(encodings=['x'])
-                event = st.altair_chart(
-                    alt.Chart(artist_filtered).mark_bar().encode(
-                        x=alt.X(f"{selected_metric}:Q", bin=True, scale=alt.Scale(domain=limits[selected_metric])),
-                        y='count(*):Q',
-                        color=alt.condition(selector, f'{selected_metric}:Q', alt.value('lightgray'), legend=None, sort="descending")
-                        ).add_params(selector).properties(height=300),
-                        use_container_width=True,
-                        on_select="rerun"
-                )
-                # TODO: follower histogram should be log scale
-            
-            with c2:
-                if not event["selection"]["param_1"]:
-                    range_selection = limits[selected_metric]
-                else:
-                    range_selection = event["selection"]["param_1"][0][selected_metric]
-
-                artist_param = artist_filtered[(artist_filtered[selected_metric] > range_selection[0]) & (artist_filtered[selected_metric] <= range_selection[1])].sort_values(by=selected_metric, ascending=False)
-
-                st.dataframe(
-                    artist_param,
-                    column_config={
-                        "image": st.column_config.ImageColumn("Cover"),
-                        f"{selected_metric}": st.column_config.Column(f'{selected_metric} ({range_selection[0]} - {range_selection[1]})'),
-                        "name": st.column_config.Column("Artist"),
-                        "id": None,
-                        "duration_ms": None,
-                        "album_id": None,
-                        "album_images": None,
-                        "uri": None,
-                    },
-                    hide_index=True,
-                    use_container_width=True,
-                    column_order=[selected_metric, "image", "name"],
-                    height=300
-                    )
-
-    with t2:
+        # --- Tracks
         st.header("Most Played Tracks")
         top_played = played
         top_played = top_played.groupby(["image", "track_id", "track", "artist","album", "popularity", "spotify_uri"]).size().reset_index(name="count").sort_values(by="count", ascending=False)
@@ -478,21 +426,101 @@ else:
 
 
         with spot3:
-            selected_af_pivoted = pd.melt(selected_af, id_vars="track_id", value_vars=["acousticness", "danceability", "energy", "instrumentalness", "liveness", "speechiness", "valence"], var_name="Feature")
+            if selected_af.shape[0] == 0:
+                st.info("Audio Features are deprecated and aren't retrieved since November 2024.")
 
-            st.dataframe(
-                selected_af_pivoted,
-                column_config={
-                    "track_id": None,
-                    "Feature": st.column_config.Column("Audio Feature"),
-                    "value": st.column_config.ProgressColumn("Value", format="%.2f", min_value=0, max_value=1)
-                },
-                hide_index=True,
-                use_container_width=True,
-                height=282
-            )
+            else:
 
-        st.header("Track Metrics")
+                selected_af_pivoted = pd.melt(selected_af, id_vars="track_id", value_vars=["acousticness", "danceability", "energy", "instrumentalness", "liveness", "speechiness", "valence"], var_name="Feature")
+
+                st.dataframe(
+                    selected_af_pivoted,
+                    column_config={
+                        "track_id": None,
+                        "Feature": st.column_config.Column("Audio Feature"),
+                        "value": st.column_config.ProgressColumn("Value", format="%.2f", min_value=0, max_value=1)
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    height=282
+                )
+        
+        # --- Genres
+        st.header("Most Popular Genres")
+
+        genres_df = pd.DataFrame(all_genres, columns=["genre"]).groupby("genre").size().reset_index(name="count").sort_values("count", ascending=False)
+        top_genres = list(genres_df[["genre", "count"]].head(10).itertuples(index=False, name=None))
+
+        # Convert the second element to a string and insert a space between the tuples
+        top_genres_converted = []
+        for item in top_genres:
+            top_genres_converted.append((item[0], str(item[1]) + "x"))
+            top_genres_converted.append(" ")
+
+        annotated_text(top_genres_converted)
+
+        
+# ---------------------------------------- TAB 2: METRICS ----------------------------------------
+    with t2:
+
+        st.header("Artist Metrics")
+
+        with st.container(border=True):
+
+            # filter for artists played in time window
+            artist_filtered = artist[artist["id"].isin(played["main_artist_id"].unique())]
+            
+            selected_metric = st.selectbox("Select Metric", artist_filtered[["popularity", "followers"]].columns)
+
+            # lookup dict for the limits of the selected metric
+            limits = {
+                "popularity": [0, 100],
+                "followers": [artist_filtered["followers"].min(), artist_filtered["followers"].max()]
+                }
+
+            c1, c2 = st.columns([2, 3])
+            with c1:
+                selector = alt.selection_point(encodings=['x'])
+                event = st.altair_chart(
+                    alt.Chart(artist_filtered).mark_bar().encode(
+                        x=alt.X(f"{selected_metric}:Q", bin=True, scale=alt.Scale(domain=limits[selected_metric])),
+                        y='count(*):Q',
+                        color=alt.condition(selector, f'{selected_metric}:Q', alt.value('lightgray'), legend=None, sort="descending")
+                        ).add_params(selector).properties(height=300),
+                        use_container_width=True,
+                        on_select="rerun"
+                )
+                # TODO: follower histogram should be log scale
+            
+            with c2:
+                if not event["selection"]["param_1"]:
+                    range_selection = limits[selected_metric]
+                else:
+                    range_selection = event["selection"]["param_1"][0][selected_metric]
+
+                artist_param = artist_filtered[(artist_filtered[selected_metric] > range_selection[0]) & (artist_filtered[selected_metric] <= range_selection[1])].sort_values(by=selected_metric, ascending=False)
+
+                st.dataframe(
+                    artist_param,
+                    column_config={
+                        "image": st.column_config.ImageColumn("Cover"),
+                        f"{selected_metric}": st.column_config.Column(f'{selected_metric} ({range_selection[0]} - {range_selection[1]})'),
+                        "name": st.column_config.Column("Artist"),
+                        "id": None,
+                        "duration_ms": None,
+                        "album_id": None,
+                        "album_images": None,
+                        "uri": None,
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    column_order=[selected_metric, "image", "name"],
+                    height=300
+                    )
+
+        
+
+        st.header("Track Metrics", help="Audio Features were deprecated by Spotify. Only Tracks played before November 2024 have all Metrics.")
 
         with st.container(border=True):
             # merge all played tracks with audio features
@@ -557,22 +585,8 @@ else:
                     height=300
                     )
                 
+
     with t3:
-        st.header("Most Popular Genres")
-
-
-        genres_df = pd.DataFrame(all_genres, columns=["genre"]).groupby("genre").size().reset_index(name="count").sort_values("count", ascending=False)
-        top_genres = list(genres_df[["genre", "count"]].head(10).itertuples(index=False, name=None))
-
-        # Convert the second element to a string and insert a space between the tuples
-        top_genres_converted = []
-        for item in top_genres:
-            top_genres_converted.append((item[0], str(item[1]) + "x"))
-            top_genres_converted.append(" ")
-
-        annotated_text(top_genres_converted)
-
-    with t4:
         st.header("Recently Played Tracks")
 
         recently_played = played.sort_values(by="played_at", ascending=False)
