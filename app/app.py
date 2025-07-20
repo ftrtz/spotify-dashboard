@@ -224,6 +224,7 @@ else:
     artist_played = get_artist_played(played)
     # and merge the artist data
     artist_full = artist_played.merge(artist, how="left", left_on="main_artist_id", right_on="id")
+    artist_full["rank"] = artist_full.reset_index().index + 1
 
     # --- Preparations for overall stats cards
     all_genres = [genre for genres in artist_full["genres"] for genre in genres]
@@ -280,6 +281,7 @@ else:
         event = st.dataframe(
             artist_full,
             column_config={
+                "rank": st.column_config.NumberColumn("🔢", format="#%d", width=15),
                 "image": st.column_config.ImageColumn(""),
                 "main_artist_id": None,
                 "id": None,
@@ -293,7 +295,7 @@ else:
                 "uri": None,
                 "images": None
             },
-            column_order=["image", "name", "duration_min", "genres", "popularity", "followers"],
+            column_order=["rank", "image", "name", "duration_min", "genres", "popularity", "followers"],
             hide_index=True,
             use_container_width=True,
             on_select="rerun",
@@ -364,6 +366,7 @@ else:
         st.header("Most Played Tracks")
         top_played = played
         top_played = top_played.groupby(["image", "track_id", "track", "artist","album", "popularity", "spotify_uri"]).size().reset_index(name="count").sort_values(by="count", ascending=False)
+        top_played["rank"] = top_played.reset_index().index + 1
 
         # prepare spotlight container on top of the table
         spot1, spot2, spot3 = st.columns([1,2,2])
@@ -371,6 +374,7 @@ else:
         event = st.dataframe(
             top_played,
             column_config={
+                "rank": st.column_config.NumberColumn("🔢", format="#%d", width=15),
                 "image": st.column_config.ImageColumn(""),
                 "track_id": None,
                 "track": st.column_config.Column("Title"),
@@ -380,7 +384,7 @@ else:
                 "count": st.column_config.Column("Plays", help="Number of times this track was played"),
                 "spotify_uri": st.column_config.LinkColumn("▶️", help="Open in Spotify", display_text="▶️"),
             },
-            column_order=["image", "count", "track", "artist", "album", "popularity", "spotify_uri"],
+            column_order=["rank", "image", "count", "track", "artist", "album", "popularity", "spotify_uri"],
             hide_index=True,
             use_container_width=True,
             on_select="rerun",
