@@ -1,0 +1,18 @@
+[project]
+name = "spotify-dashboard"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "polars>=1.31.0",
+    "connectorx>=0.4.3",
+    "streamlit>=1.47.0",
+    "streamlit-extras>=0.7.5",
+]
+
+[dependency-groups]
+dev = [
+    "dotenv>=0.9.9",
+    "notebook>=7.4.4",
+]

@@ -1,20 +1,18 @@
 import streamlit as st
 from streamlit_extras.mandatory_date_range import date_range_picker
-from streamlit_extras.add_vertical_space import add_vertical_space
 import altair as alt
-from datetime import timedelta, date, datetime
-from sqlalchemy import create_engine, Engine
+from datetime import timedelta, date
 import os
-import pandas as pd
-from pandas import DataFrame
-from typing import Optional
+from polars import DataFrame
+import connectorx as cx
+import polars as pl
 
 # ========== STREAMLIT CONFIG
 st.set_page_config(layout="wide")
 
 # ========= FUNCTIONS
 @st.cache_data(ttl=3600)
-def get_played_joined(_con: Engine, db_schema: str) -> DataFrame:
+def get_played_joined(_db_url: str, db_schema: str) -> DataFrame:
     """
     Load data from the database and join tables to get played tracks with their details.
 
@@ -22,7 +20,7 @@ def get_played_joined(_con: Engine, db_schema: str) -> DataFrame:
     - engine (sqlalchemy.Engine): Database engine.
 
     Returns:
-    - pandas.DataFrame: DataFrame with played track details.
+    - polars.DataFrame: DataFrame with played track details.
     """
     query = f"""
         select
@@ -42,19 +40,19 @@ def get_played_joined(_con: Engine, db_schema: str) -> DataFrame:
         join {db_schema}.track_artist on track.id = track_artist.track_id
         join {db_schema}.artist on track_artist.artist_id = artist.id
         group by played_at, track.id
-        order by played_at;
+        order by played_at
     """
-    dfs = []
-    for chunk_df in pd.read_sql_query(
-        query, con=_con,
-        chunksize=10000,
-        parse_dates={'played_at': {'format': '%Y-%m-%d'}}
-        ):
-        dfs.append(chunk_df)
-    return pd.concat(dfs)
+
+    df = cx.read_sql(
+        conn=_db_url,
+        query=query,
+        return_type="polars"
+    )
+
+    return df
 
 @st.cache_data(ttl=3600)
-def get_artist(_con: Engine, db_schema: str) -> DataFrame:
+def get_artist(_db_url: str, db_schema: str) -> DataFrame:
     """
     Load artist data from the database.
 
@@ -62,21 +60,22 @@ def get_artist(_con: Engine, db_schema: str) -> DataFrame:
     - engine (sqlalchemy.Engine): Database engine.
 
     Returns:
-    - pandas.DataFrame: DataFrame with artist details.
+    - polars.DataFrame: DataFrame with artist details.
     """
     query = f"""
         select *, images->1->'url'->>0 as image
-        from {db_schema}.artist;
+        from {db_schema}.artist
     """
-    dfs = []
-    for chunk_df in pd.read_sql_query(
-        query, con=_con, chunksize=10000
-        ):
-        dfs.append(chunk_df)
-    return pd.concat(dfs)
+    df = cx.read_sql(
+        conn=_db_url,
+        query=query,
+        return_type="polars"
+    )
+
+    return df
 
 @st.cache_data(ttl=3600)
-def get_track(_con: Engine, db_schema: str) -> DataFrame:
+def get_track(_db_url: str, db_schema: str) -> DataFrame:
     """
     Load track data from the database.
 
@@ -84,21 +83,22 @@ def get_track(_con: Engine, db_schema: str) -> DataFrame:
     - engine (sqlalchemy.Engine): Database engine.
 
     Returns:
-    - pandas.DataFrame: DataFrame with track details.
+    - polars.DataFrame: DataFrame with track details.
     """
     query = f"""
         select *, album_images->1->'url'->>0 as image
-        from {db_schema}.track;
+        from {db_schema}.track
     """
-    dfs = []
-    for chunk_df in pd.read_sql_query(
-        query, con=_con, chunksize=10000
-        ):
-        dfs.append(chunk_df)
-    return pd.concat(dfs)
+    df = cx.read_sql(
+        conn=_db_url,
+        query=query,
+        return_type="polars"
+    )
+
+    return df
 
 @st.cache_data(ttl=3600)
-def get_audio_features(_con: Engine, db_schema: str) -> DataFrame:
+def get_audio_features(_db_url: str, db_schema: str) -> DataFrame:
     """
     Load audio features data from the database.
 
@@ -106,18 +106,19 @@ def get_audio_features(_con: Engine, db_schema: str) -> DataFrame:
     - engine (sqlalchemy.Engine): Database engine.
 
     Returns:
-    - pandas.DataFrame: DataFrame with audio features details.
+    - polars.DataFrame: DataFrame with audio features details.
     """
     query = f"""
         select *
-        from {db_schema}.audio_features;
+        from {db_schema}.audio_features
     """
-    dfs = []
-    for chunk_df in pd.read_sql_query(
-        query, con=_con, chunksize=10000
-        ):
-        dfs.append(chunk_df)
-    return pd.concat(dfs)
+    df = cx.read_sql(
+        conn=_db_url,
+        query=query,
+        return_type="polars"
+    )
+
+    return df
 
 @st.cache_data(ttl=3600)
 def get_artist_played(played: DataFrame) -> DataFrame:
@@ -125,32 +126,32 @@ def get_artist_played(played: DataFrame) -> DataFrame:
     Transforms the played dataframe and calculates the duration in minutes for the main artist.
 
     Parameters:
-    - played (pandas.DataFrame): DataFrame with data to be grouped and aggregated.
+    - played (polars.DataFrame): DataFrame with data to be grouped and aggregated.
 
     Returns:
-    - pandas.DataFrame: DataFrame with grouped and aggregated data, including "duration_min" column.
+    - polars.DataFrame: DataFrame with grouped and aggregated data, including "duration_min" column.
     """
-    artist_played = played.groupby(["main_artist_id", "main_artist"]).agg({"duration_ms": "sum"}).reset_index().sort_values("duration_ms", ascending=False)
-    artist_played["duration_min"] = artist_played["duration_ms"] / 60000
+    artist_played = (
+        played
+        .group_by(["main_artist_id", "main_artist"])
+        .agg(pl.col("duration_ms").sum().alias("duration_ms"))
+        .sort("duration_ms", descending=True)
+        .with_columns(
+            (pl.col("duration_ms") / 60000).alias("duration_min")
+        )
+    )
     return artist_played
 
 # ========== DATABASE CONNECTION
-POSTGRES_USER = os.getenv("POSTGRES_USER")
-POSTGRES_SECRET = os.getenv("POSTGRES_SECRET")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
-DB_NAME = os.getenv("DB_NAME")
-
-engine = create_engine(f'postgresql+psycopg2://{POSTGRES_USER}:{POSTGRES_SECRET}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
-con = engine.connect().execution_options(stream_results=True)
+db_url=f'postgresql://{os.getenv("POSTGRES_USER")}:{os.getenv("POSTGRES_SECRET")}@{os.getenv("DB_HOST")}:{os.getenv("DB_PORT")}/{os.getenv("DB_NAME")}'
 
 db_schema = os.getenv("DB_SCHEMA")
 
 # ========== LOAD DATA
-played_raw = get_played_joined(con, db_schema)
-artist = get_artist(con, db_schema)
-track = get_track(con, db_schema)
-audio_features = get_audio_features(con, db_schema)
+played_raw = get_played_joined(db_url, db_schema)
+artist = get_artist(db_url, db_schema)
+track = get_track(db_url, db_schema)
+audio_features = get_audio_features(db_url, db_schema)
 
 # ========== CONTENT
 min_dt = played_raw["played_at"].min().date()
@@ -211,11 +212,11 @@ with st.sidebar:
         max_date=max_dt
     )
 
-    start_date = pd.to_datetime(state.start_date).tz_localize('UTC')
-    end_date = pd.to_datetime(state.end_date).tz_localize('UTC')
+    start_date = state.start_date
+    end_date = state.end_date
 
 if start_date and end_date:
-    played = played_raw[played_raw["played_at"].between(start_date, end_date)]
+    played = played_raw.filter(pl.col("played_at").is_between(start_date, end_date))
 
 if played.shape[0] == 0:
     st.info("No data for the selected date range.")
@@ -223,12 +224,20 @@ else:
     # retrieve played data for artists
     artist_played = get_artist_played(played)
     # and merge the artist data
-    artist_full = artist_played.merge(artist, how="left", left_on="main_artist_id", right_on="id")
-    artist_full["rank"] = artist_full.reset_index().index + 1
+    artist_full = artist_played.join(artist, how="left", left_on="main_artist_id", right_on="id")
+    artist_full = artist_full.with_row_index(name="rank", offset=1)
 
     # --- Preparations for overall stats cards
-    all_genres = [genre for genres in artist_full["genres"] for genre in genres]
-    genres_count = pd.Series(all_genres).unique().shape[0]
+    all_genres = (
+        artist_full
+        .select("genres")
+        .explode("genres")
+        .drop_nulls()
+        .group_by("genres")
+        .len("count")
+        .sort("count", descending=True)
+    )
+    genres_count = all_genres.shape[0]
 
     st.title("Spotify Dashboard")
 
@@ -245,7 +254,7 @@ else:
         with st.container(height=125, border=True):
             st.metric(
                 label="Different artists",
-                value=played.drop_duplicates("main_artist_id").shape[0]
+                value=played.unique("main_artist_id").shape[0]
             )
     with c3:
         with st.container(height=125, border=True):
@@ -257,11 +266,11 @@ else:
         with st.container(height=125, border=True):
             st.metric(
                 label="Different tracks",
-                value=played.drop_duplicates("track_id").shape[0]
+                value=played.unique("track_id").shape[0]
             )
     with c5:
         with st.container(height=125, border=True):
-            avg_pop = played.drop_duplicates("track_id")["popularity"].mean()
+            avg_pop = played.unique("track_id")["popularity"].mean()
             st.metric(
                 label="Average popularity of tracks",
                 value=round(avg_pop, 2),
@@ -307,9 +316,7 @@ else:
         else:
             selected_idx = 0
 
-        selected_id = artist_full["id"].iloc[selected_idx]
-        selected_artist = artist_full[artist_full["id"] == selected_id].to_dict("records")[0]
-
+        selected_artist = artist_full.row(selected_idx, named=True)
 
         # try st extras
         from streamlit_extras.card import card
@@ -317,29 +324,37 @@ else:
         from streamlit_extras.stylable_container import stylable_container
         from annotated_text import annotated_text
 
-
         with spot1:
-            annotated_text((f"#{selected_idx + 1}", f'{selected_artist["name"]}'))
-
-            stylable_container(
-                key="selected-artist-image",
-                css_styles=
-                    f"""{{
-                            width: 100%;
-                            min-height: 218px;
-                            background-image: url("{selected_artist["image"]}");
-                            background-size: cover;
-                            background-position: center;
-                            border-radius: 10px;
-                        }}"""
-                    )
+            annotated_text((f"#{selected_artist["rank"]}", f'{selected_artist["name"]}'))
+            
+            st.markdown(
+                f"""
+                <div style="
+                    width: 100%;
+                    min-height: 218px;
+                    background-image: url('{selected_artist["image"]}');
+                    background-size: cover;
+                    background-position: center;
+                    border-radius: 10px;
+                ">
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
                 
         with spot2:
             with st.container(height=260, border=True):
                 st.caption("Cumulative Time Listened (min)")
-                selected_cum_time = played[played["main_artist_id"] == selected_id]
-                selected_cum_time["duration_min"] = selected_cum_time["duration_ms"] / 60000
-                selected_cum_time["duration_min_cumsum"] = selected_cum_time["duration_min"].cumsum()
+                selected_cum_time = (
+                    played
+                    .filter(pl.col("main_artist_id") == selected_artist["main_artist_id"])
+                    .with_columns([
+                        (pl.col("duration_ms") / 60000).alias("duration_min"),
+                    ])
+                    .with_columns([
+                        pl.col("duration_min").cum_sum().alias("duration_min_cumsum")
+                    ])
+                )
 
                 st.altair_chart(alt.Chart(selected_cum_time).mark_line().encode(
                     x=alt.X("played_at", title=None),
@@ -348,7 +363,20 @@ else:
                 use_container_width=True)
 
         with spot3:
-            selected_artist_tracks = played[played["main_artist_id"] == selected_id].groupby(["image", "track"]).size().reset_index(name="count").sort_values(by="count", ascending=False)
+            selected_artist_tracks = (
+                played
+                .filter(pl.col("main_artist_id") == selected_artist["main_artist_id"])
+                .group_by("image", "track")
+                .len("count")
+            )
+
+            selected_artist_tracks = (
+                played
+                .filter(pl.col("main_artist_id") == selected_artist["main_artist_id"])
+                .group_by("image", "track")
+                .len("count")
+                .sort(by="count", descending=True)
+            )
             st.dataframe(
                 selected_artist_tracks,
                 column_config={
@@ -364,9 +392,13 @@ else:
 
         # --- Tracks
         st.header("Most Played Tracks")
-        top_played = played
-        top_played = top_played.groupby(["image", "track_id", "track", "artist","album", "popularity", "spotify_uri"]).size().reset_index(name="count").sort_values(by="count", ascending=False)
-        top_played["rank"] = top_played.reset_index().index + 1
+        top_played = (
+                played
+                .group_by("image", "track_id", "track", "artist","album", "popularity", "spotify_uri")
+                .len("count")
+                .sort(by="count", descending=True)
+                .with_row_index(name="rank", offset=1)
+            )
 
         # prepare spotlight container on top of the table
         spot1, spot2, spot3 = st.columns([1,2,2])
@@ -396,32 +428,40 @@ else:
         else:
             selected_idx = 0
 
-        selected_id = top_played["track_id"].iloc[selected_idx]
-        selected_track = top_played[top_played["track_id"] == selected_id].to_dict("records")[0]
-        selected_af = audio_features[audio_features["track_id"] == selected_id]
-
+        selected_track = top_played.row(selected_idx, named=True)
 
         with spot1:
-            annotated_text((f'#{selected_idx + 1}', f'{selected_track["track"]}'))
+            annotated_text((f'#{selected_track["rank"]}', f'{selected_track["track"]}'))
 
-
-            stylable_container(
-                key="selected-track-image",
-                css_styles=
-                    f"""{{
-                            width: 100%;
-                            min-height: 240px;
-                            background-image: url("{selected_track["image"]}");
-                            background-size: cover;
-                            background-position: center;
-                            border-radius: 10px;
-                        }}"""
-                    )
+            st.markdown(
+                f"""
+                <div style="
+                    width: 100%;
+                    min-height: 218px;
+                    background-image: url('{selected_track["image"]}');
+                    background-size: cover;
+                    background-position: center;
+                    border-radius: 10px;
+                ">
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
         with spot2:
             with st.container(height=282, border=True):
                 st.caption("Cumulative Plays")
-                selected_cum_plays = played[played["track_id"] == selected_id].groupby("played_at").size().cumsum().reset_index(name="cumsum")
+
+                selected_cum_plays = (
+                    played
+                    .filter(pl.col("track_id") == selected_track["track_id"])
+                    .sort("played_at")
+                    .group_by("played_at")
+                    .len("count")
+                    .with_columns([
+                        pl.col("count").cum_sum().alias("cumsum")
+                    ])
+                )
 
                 st.altair_chart(alt.Chart(selected_cum_plays).mark_line().encode(
                     x=alt.X("played_at", title=None),
@@ -430,12 +470,13 @@ else:
 
 
         with spot3:
+            selected_af = audio_features.filter(pl.col("track_id") == selected_track["track_id"])
             if selected_af.shape[0] == 0:
                 st.info("Audio Features are deprecated and aren't retrieved since November 2024.")
 
             else:
 
-                selected_af_pivoted = pd.melt(selected_af, id_vars="track_id", value_vars=["acousticness", "danceability", "energy", "instrumentalness", "liveness", "speechiness", "valence"], var_name="Feature")
+                selected_af_pivoted = selected_af.unpivot(index="track_id", on=["acousticness", "danceability", "energy", "instrumentalness", "liveness", "speechiness", "valence"], variable_name="Feature")
 
                 st.dataframe(
                     selected_af_pivoted,
@@ -451,14 +492,14 @@ else:
         
         # --- Genres
         st.header("Most Popular Genres")
+        
+        # Extract top 10 genres as list of tuples
+        top_genres = all_genres.select(["genres", "count"]).head(10).iter_rows(named=False)
 
-        genres_df = pd.DataFrame(all_genres, columns=["genre"]).groupby("genre").size().reset_index(name="count").sort_values("count", ascending=False)
-        top_genres = list(genres_df[["genre", "count"]].head(10).itertuples(index=False, name=None))
-
-        # Convert the second element to a string and insert a space between the tuples
+        # Build the converted list for annotated_text
         top_genres_converted = []
-        for item in top_genres:
-            top_genres_converted.append((item[0], str(item[1]) + "x"))
+        for genre, count in top_genres:
+            top_genres_converted.append((genre, f"{count}x"))
             top_genres_converted.append(" ")
 
         annotated_text(top_genres_converted)
@@ -472,7 +513,7 @@ else:
         with st.container(border=True):
 
             # filter for artists played in time window
-            artist_filtered = artist[artist["id"].isin(played["main_artist_id"].unique())]
+            artist_filtered = artist.join(played, how="left", left_on="id", right_on="main_artist_id")
             
             selected_metric = st.selectbox("Select Metric", artist_filtered[["popularity", "followers"]].columns)
 
@@ -502,8 +543,16 @@ else:
                 else:
                     range_selection = event["selection"]["param_1"][0][selected_metric]
 
-                artist_param = artist_filtered[(artist_filtered[selected_metric] > range_selection[0]) & (artist_filtered[selected_metric] <= range_selection[1])].sort_values(by=selected_metric, ascending=False)
-
+                
+                artist_param = (
+                    artist_filtered
+                    .filter(
+                        (pl.col(selected_metric) > range_selection[0]) &
+                        (pl.col(selected_metric) <= range_selection[1])
+                    )
+                    .sort(selected_metric, descending=True)
+                )
+                
                 st.dataframe(
                     artist_param,
                     column_config={
@@ -528,10 +577,14 @@ else:
 
         with st.container(border=True):
             # merge all played tracks with audio features
-            p_select = played[["track_id", "track", "artist", "popularity", "image"]].drop_duplicates()
-            track_full = p_select.merge(audio_features, on="track_id")
+            p_select = (
+                played
+                .select("track_id", "track", "artist", "popularity", "image")
+                .unique()
+                )
+            track_full = p_select.join(audio_features, on="track_id", how="left")
 
-            selected_metric = st.selectbox("Select Metric", track_full.columns.drop(["track_id", "track", "artist", "image", "mode", "analysis_url"]))
+            selected_metric = st.selectbox("Select Metric", track_full.drop("track_id", "track", "artist", "image", "mode", "analysis_url").columns)
 
             # lookup dict for the limits of the selected metric
             limits = {
@@ -567,9 +620,16 @@ else:
                     range_selection = limits[selected_metric]
                 else:
                     range_selection = event["selection"]["param_1"][0][selected_metric]
-                    
-                track_param = track_full[(track_full[selected_metric] > range_selection[0]) & (track_full[selected_metric] <= range_selection[1])].sort_values(by=selected_metric, ascending=False)
 
+                track_param = (
+                    track_full
+                    .filter(
+                        (pl.col(selected_metric) > range_selection[0]) &
+                        (pl.col(selected_metric) <= range_selection[1])
+                    )
+                    .sort(selected_metric, descending=True)
+                )
+                    
                 st.dataframe(
                     track_param,
                     column_config={
@@ -593,7 +653,7 @@ else:
     with t3:
         st.header("Recently Played Tracks")
 
-        recently_played = played.sort_values(by="played_at", ascending=False)
+        recently_played = played.sort(by="played_at", descending=True)
 
         st.dataframe(
             recently_played,
