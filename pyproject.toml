@@ -15,4 +15,5 @@ dependencies = [
 dev = [
     "dotenv>=0.9.9",
     "notebook>=7.4.4",
+    "ruff>=0.12.4",
 ]
