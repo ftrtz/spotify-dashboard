@@ -1,31 +1,37 @@
-# Use a builder stage to install dependencies
-FROM python:3.11-slim AS builder
+# --- Builder Stage
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Install system dependencies for psycopg2
-RUN apt-get update && \
-    apt-get install -y build-essential libpq-dev && \
-    rm -rf /var/lib/apt/lists/*
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV UV_PYTHON_DOWNLOADS=0
 
-# Copy application files and install Python dependencies
-COPY ./requirements.txt /app
-RUN pip install --no-cache-dir -r requirements.txt
+# Install the project's dependencies using the lockfile and settings
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project --no-dev
 
-# Final stage
-FROM python:3.11-slim
+# Copy the pyproject.toml and lockfile to install dependencies
+COPY ./pyproject.toml /app
+COPY ./uv.lock /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
 
+# --- Final Stage
+FROM python:3.13-slim-bookworm AS final
+
+# Set working directory for the app
 WORKDIR /app
 
-# Install runtime dependencies only
-RUN apt-get update && \
-    apt-get install -y libpq-dev && \
-    apt-get install -y iputils-ping && \
-    rm -rf /var/lib/apt/lists/*
-
-# Copy only the necessary files from the builder stage
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Copy installed venv from build stage
+COPY --from=builder /app /app
+# and the app code directly
 COPY /app /app
 
+# Place executables in the environment at the front of the path
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Use relative CMD, clean and readable
 CMD ["streamlit", "run", "app.py"]
